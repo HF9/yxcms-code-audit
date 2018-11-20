@@ -1,0 +1,98 @@
+There is a Any PHP Code Execution security vulnerablity in YXcms 1.4.7 
+
+Description:
+Any PHP Code Execution vulnerability in /WWW/YXcmsApp1.4.7/protected/apps/appmanage/controller/indexController.php allow remote attackers to exeute any PHP code.
+
+Condition:
+You should be a Administrator(Obtain passwords and accounts via weak passwords or social engineering)
+
+The Cause of the vulnerability:
+There is a bug function in line 203th of this script, as shown in the following code:
+
+public function onlineinstall(){
+    $url = $_GET['url'];//在线安装地址
+    if( empty($url) ){
+        $this->error('参数传递错误');
+    }
+    $content = file_get_contents($url);
+    if( empty($content) ){
+        $this->error('数据下载错误');
+    }
+    $zip_file = BASE_PATH . 'cache/tmp/' .md5($url) .'.zip';
+    if( file_put_contents($zip_file, $content) ){
+        $this->import($zip_file);
+    }else{
+        $this->error('数据写入错误');
+    }
+}
+
+and this in line 79th of this script, as shown in the following code:
+
+public function import($zip_file=''){
+    if(empty($zip_file)){
+        if( !$this->isPost() ){
+            $this->display();
+            return true;
+        }
+        
+        if($_FILES['file']['size'] < 0){
+            $this->error('请选择文件');
+        }
+        $zip_file = $_FILES['file']['tmp_name'];
+    }
+    
+    $zip_dir = BASE_PATH . 'cache/tmp/' .md5($zip_file) .'/';
+    if(substr($zip_dir,0,1)=="/")  $zip_dir='.'.$zip_dir; //无法获得绝对路径情况
+    
+    $zip = new Zip();
+    $zip->decompress($zip_file, $zip_dir);
+    @unlink($zip_file);
+    
+    //获取app名称
+    $app = '';
+    $arr = glob($zip_dir .'*/config.php');
+    if( !empty($arr) ){
+        if( preg_match('#/([a-z0-9]+)/config.php#', $arr[0], $matches)){
+            $app = $matches[1];
+        }
+    }
+    if( empty($app) ){      
+        del_dir($zip_dir);
+        $this->error('安装包格式错误！');
+    }
+    
+    //判断应用是否已经存在
+    $app_path = BASE_PATH . 'apps/' . $app . '/';
+    if( is_dir($app_path) ){
+        del_dir($zip_dir);
+        $this->error($app .'应用已存在，请先卸载！');
+    }
+
+    //将数据拷贝到apps目录
+    copy_dir($zip_dir . $app , $app_path);
+    del_dir($zip_dir);
+    
+    //执行安装
+    $_GET['app'] = $app;
+    $this->install();
+}
+
+
+POC:
+First we should have a zip file on any website which containing a folder, and in this folder we should have a file named 'config.php' 
+
+this folder is like this:
+
+aaa.zip-+----aaa+-----config.php
+        |        |
+        |        +-----
+        |
+        +----
+
+We can write any PHP code in this config.php. 
+
+Then visit the link http://127.0.0.1/index.php?r=appmanage/index/onlineinstall&url=http://127.0.0.1/aaa.zip
+, we can see our PHP code has been executed in a short time 
+
+Repair method:
+check the evil code in config.php
